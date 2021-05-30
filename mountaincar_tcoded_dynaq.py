@@ -13,7 +13,7 @@ class tilecoder:
         self.dim = len(self.maxIn)
         self.numTiles = (self.tilesPerTiling**self.dim) * self.numTilings
         self.actions = env.action_space.n
-        self.n = self.numTiles * self.actions
+        self.n = self.numTiles
         self.tileSize = np.divide(np.subtract(self.maxIn,self.minIn), self.tilesPerTiling-1)
 		
     def getFeatures(self, variables):
@@ -32,67 +32,45 @@ class tilecoder:
                 + sum(matrix[i,:])) 
         return tileIndices
 
-    def oneHotVector(self, features, action):
-        oneHot = np.zeros(self.n)
+    def oneHotVector(self, features):
+        oneHot = np.zeros((self.n,1))
         for i in features:
-            index = int(i + (self.numTiles*action))
+            index = int(i)
             oneHot[index] = 1
         return oneHot
 
-    def getVal(self, theta, features, action):
-        val = 0 
-        for i in features:
-            index = int(i + (self.numTiles*action))
-            val += theta[index]
-        return val
+    def getQval(self, phi, F, b, gamma, theta):
+        Q = b.T @ phi + gamma * (theta.T @ F @ phi)
+        return Q
 
-    def getQ(self, features, theta):
+    def getQ(self, phi, F, b, gamma, theta):
         Q = np.zeros(self.actions)
         for i in range(self.actions):
-            Q[i] = tile.getVal(theta, features, i)
+            Q[i] = self.getQval(phi, F[i], b[i], gamma, theta)
         return Q
 
 
-class Model():
-    def __init__(self, n_states, n_actions):
-        self.transitions = np.zeros((n_states,n_actions), dtype=np.uint8)
-        self.rewards = np.zeros((n_states, n_actions))
+def planning(n, theta, F, b, tile, gamma, alpha):
+    for _ in range(n):
+        sample_state = env.observation_space.sample()
+        action = env.action_space.sample()
+        phi = tile.getFeatures(sample_state)
+        phi = tile.oneHotVector(phi)
+        phi_prime  = F[action] @ phi
+        reward = (b[action].T @ phi)
+        delta = reward + (gamma*(theta.T @ phi_prime)) - (theta.T @ phi)
+        theta += alpha*delta*phi
+        return theta
 
-    def add(self,s,a,s_prime,r):
-        self.transitions[s,a] = s_prime
-        self.rewards[s,a] = r
-
-    def sample(self):
-        """ Return random state, action"""
-        # Random visited state
-        s = np.random.choice(np.where(np.sum(self.transitions, axis=1) > 0)[0])
-        # Random action in that state
-        a = np.random.choice(np.where(self.transitions[s] > 0)[0])
-        return s,a
-
-    def step(self, s,a):
-        """ Return state_prime and reward for state-action pair"""
-        s_prime = self.transitions[s,a]
-        r = self.rewards[s,a]
-        return s_prime, r
-
-def planning(n, theta, tile, gamma, alpha):
-    for i in range(n):
-        state, action =  self.model.sample()
-        s_prime, reward = self.model.step(state, action)
-        F = tile.getFeatures(state)
-        Q = tile.getQ(F, theta)
-        delta = reward - Q[action]
-        Q = tile.getQ(tile.getFeatures(s_prime), theta)
-        delta += gamma*np.max(Q)
-        theta += np.multiply((alpha*delta), tile.oneHotVector(F,action))
-    return theta
 
 
 if __name__ == "__main__":
 
     tile = tilecoder(4,18)
-    theta = np.random.uniform(-0.001, 0, size=(tile.n))
+    
+    theta = np.random.uniform(-0.001, 0, size=(tile.n,1))
+    F = 3* [np.random.uniform(-0.001, 0, size=(tile.n, tile.n))]
+    b =  3* [np.random.uniform(-0.001, 0, size=(tile.n,1))]
     alpha = .1/ tile.numTilings*3.2
     gamma = 1
     numEpisodes = 100000
@@ -101,7 +79,6 @@ if __name__ == "__main__":
     render = False
     solved = False
     n = 50
-    model =  Model(env.observation_space.n, env.action_space.n)
 
     for episodeNum in range(1,numEpisodes+1):
         G = 0
@@ -109,27 +86,28 @@ if __name__ == "__main__":
         for step in range(stepsPerEpisode):
             if render:
                 env.render()
-            F = tile.getFeatures(state)
-            Q = tile.getQ(F, theta)
+            phi = tile.getFeatures(state)
+            phi = tile.oneHotVector(phi)        
+            Q = tile.getQ( phi, F, b, gamma, theta)
             action = np.argmax(Q)
             state2, reward, done, info = env.step(action)
+            phi_prime = tile.getFeatures(state2)
+            phi_prime = tile.oneHotVector(phi_prime)                    
             G += reward
-            delta = reward - Q[action]
+            delta = reward + (gamma*(theta.T @ phi_prime)) - (theta.T @ phi)
             if done == True:
-                theta += np.multiply((alpha*delta), tile.oneHotVector(F,action))
+                theta += alpha*delta*phi
                 rewardTracker.append(G)
                 if episodeNum %100 == 0:
                     print('Total Episodes = {} Episode Reward = {} Average reward = {}'.format(episodeNum, G, np.mean(rewardTracker)))
                 break
-            Q = tile.getQ(tile.getFeatures(state2), theta)
-            delta += gamma*np.max(Q)
-            theta += np.multiply((alpha*delta), tile.oneHotVector(F,action))
-
-            #learn model
-            model.add(state, action, state2, reward)
+            #modelling
+            F[action] += alpha*((phi_prime -F[action]@phi)@ phi.T)
+            b[action] += alpha*((reward - b[action].T@phi)*phi)
+            theta += alpha*delta*phi
             #plan
-            theta = planning(n, theta, tile, gamma, alpha)
-
+            #uncomment for planning
+            #theta = planning(n, theta, F, b, tile, gamma, alpha)
             state = state2
 
         if solved != True:
