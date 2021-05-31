@@ -82,13 +82,13 @@ class MountainCarTileCoder:
 def planning(n, theta, F, b, tile, gamma, alpha):
     for _ in range(n):
         sample_state = env.observation_space.sample()
-        action = env.action_space.sample()
         phi = tile.get_tiles(position = sample_state[0], velocity = sample_state[1])
+        Q = tile.getQ( phi, F, b, gamma, theta)
+        action = np.argmax(Q)
         phi_prime  = (F[action] @ phi)
         reward = (b[action].T @ phi)
         delta = reward + (gamma*(theta.T @ phi_prime)) - (theta.T @ phi)
         theta += alpha*delta*phi
-        print(F, b, theta)
         return theta
 
 
