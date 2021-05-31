@@ -1,43 +1,73 @@
+
+from typing import Sequence
 import gym
 import numpy as np
+from numpy.core.fromnumeric import shape
 env = gym.make("MountainCar-v0")
 import time
+import tiles3 as tc
 
-class tilecoder:
-	
-    def __init__(self, numTilings, tilesPerTiling):
-        self.maxIn = env.observation_space.high
-        self.minIn = env.observation_space.low
-        self.numTilings = numTilings
-        self.tilesPerTiling = tilesPerTiling
-        self.dim = len(self.maxIn)
-        self.numTiles = (self.tilesPerTiling**self.dim) * self.numTilings
+
+class MountainCarTileCoder:
+    def __init__(self, iht_size=4096, num_tilings=8, num_tiles=8):
+        """
+        Initializes the MountainCar Tile Coder
+        Initializers:
+        iht_size -- int, the size of the index hash table, typically a power of 2
+        num_tilings -- int, the number of tilings
+        num_tiles -- int, the number of tiles. Here both the width and height of the
+                     tile coder are the same
+        Class Variables:
+        self.iht -- tc.IHT, the index hash table that the tile coder will use
+        self.num_tilings -- int, the number of tilings the tile coder will use
+        self.num_tiles -- int, the number of tiles the tile coder will use
+        """
+        self.iht = tc.IHT(iht_size)
+        self.num_tilings = num_tilings
+        self.num_tiles = num_tiles
         self.actions = env.action_space.n
-        self.n = self.numTiles
-        self.tileSize = np.divide(np.subtract(self.maxIn,self.minIn), self.tilesPerTiling-1)
-		
-    def getFeatures(self, variables):
-        ### ENSURES LOWEST POSSIBLE INPUT IS ALWAYS 0
-        self.variables = np.subtract(variables, self.minIn)
-        tileIndices = np.zeros(self.numTilings)
-        matrix = np.zeros([self.numTilings,self.dim])
-        for i in range(self.numTilings):
-            for i2 in range(self.dim):
-                matrix[i,i2] = int(self.variables[i2] / self.tileSize[i2] \
-                    + i / self.numTilings)
-        for i in range(1,self.dim):
-            matrix[:,i] *= self.tilesPerTiling**i
-        for i in range(self.numTilings):
-            tileIndices[i] = (i * (self.tilesPerTiling**self.dim) \
-                + sum(matrix[i,:])) 
-        return tileIndices
-
-    def oneHotVector(self, features):
-        oneHot = np.zeros((self.n,1))
-        for i in features:
-            index = int(i)
-            oneHot[index] = 1
-        return oneHot
+        self.n = num_tilings
+    
+    def get_tiles(self, position, velocity):
+        """
+        Takes in a position and velocity from the mountaincar environment
+        and returns a numpy array of active tiles.
+        
+        Arguments:
+        position -- float, the position of the agent between -1.2 and 0.5
+        velocity -- float, the velocity of the agent between -0.07 and 0.07
+        returns:
+        tiles - np.array, active tiles
+        """
+        # Set the max and min of position and velocity to scale the input
+        # POSITION_MIN
+        # POSITION_MAX
+        # VELOCITY_MIN
+        # VELOCITY_MAX
+        ### START CODE HERE ###
+        POSITION_MIN = env.observation_space.low[0]
+        POSITION_MAX = env.observation_space.high[0]
+        VELOCITY_MIN = env.observation_space.low[1]
+        VELOCITY_MAX = env.observation_space.high[1]
+        ### END CODE HERE ###
+        
+        # Use the ranges above and self.num_tiles to set position_scale and velocity_scale
+        # position_scale = number of tiles / position range
+        # velocity_scale = number of tiles / velocity range
+        
+        # Scale position and velocity by multiplying the inputs of each by their scale
+        
+        ### START CODE HERE ###
+        position_scale = self.num_tiles / (POSITION_MAX - POSITION_MIN)
+        velocity_scale = self.num_tiles / (VELOCITY_MAX - VELOCITY_MIN)
+        ### END CODE HERE ###
+        
+        # get the tiles using tc.tiles, with self.iht, self.num_tilings and [scaled position, scaled velocity]
+        # nothing to implment here
+        tiles = tc.tiles(self.iht, self.num_tilings, [position * position_scale, 
+                                                      velocity * velocity_scale])
+        
+        return np.array(tiles)
 
     def getQval(self, phi, F, b, gamma, theta):
         Q = b.T @ phi + gamma * (theta.T @ F @ phi)
@@ -49,29 +79,27 @@ class tilecoder:
             Q[i] = self.getQval(phi, F[i], b[i], gamma, theta)
         return Q
 
-
 def planning(n, theta, F, b, tile, gamma, alpha):
     for _ in range(n):
         sample_state = env.observation_space.sample()
         action = env.action_space.sample()
-        phi = tile.getFeatures(sample_state)
-        phi = tile.oneHotVector(phi)
-        phi_prime  = F[action] @ phi
+        phi = tile.get_tiles(position = sample_state[0], velocity = sample_state[1])
+        phi_prime  = (F[action] @ phi)
         reward = (b[action].T @ phi)
         delta = reward + (gamma*(theta.T @ phi_prime)) - (theta.T @ phi)
         theta += alpha*delta*phi
+        print(F, b, theta)
         return theta
 
 
 
 if __name__ == "__main__":
 
-    tile = tilecoder(4,18)
-    
-    theta = np.random.uniform(-0.001, 0, size=(tile.n,1))
-    F = 3* [np.random.uniform(-0.001, 0, size=(tile.n, tile.n))]
-    b =  3* [np.random.uniform(-0.001, 0, size=(tile.n,1))]
-    alpha = .1/ tile.numTilings*3.2
+    tile = MountainCarTileCoder(iht_size=1024, num_tilings=8, num_tiles=8)
+    theta = np.random.uniform(-0.001, 0, size=(tile.n))
+    F = 3* [np.identity(tile.n)]
+    b =  3* [np.random.uniform(-0.001, 0, size=(tile.n))]
+    alpha = 0.00001
     gamma = 1
     numEpisodes = 100000
     stepsPerEpisode = 200
@@ -86,13 +114,11 @@ if __name__ == "__main__":
         for step in range(stepsPerEpisode):
             if render:
                 env.render()
-            phi = tile.getFeatures(state)
-            phi = tile.oneHotVector(phi)        
+            phi = tile.get_tiles(position=state[0], velocity=state[1])    
             Q = tile.getQ( phi, F, b, gamma, theta)
             action = np.argmax(Q)
             state2, reward, done, info = env.step(action)
-            phi_prime = tile.getFeatures(state2)
-            phi_prime = tile.oneHotVector(phi_prime)                    
+            phi_prime = tile.get_tiles(position=state2[0], velocity=state2[1])                    
             G += reward
             delta = reward + (gamma*(theta.T @ phi_prime)) - (theta.T @ phi)
             if done == True:
@@ -102,8 +128,9 @@ if __name__ == "__main__":
                     print('Total Episodes = {} Episode Reward = {} Average reward = {}'.format(episodeNum, G, np.mean(rewardTracker)))
                 break
             #modelling
-            F[action] += alpha*((phi_prime -F[action]@phi)@ phi.T)
-            b[action] += alpha*((reward - b[action].T@phi)*phi)
+            F[action] = F[action] + alpha*np.outer((phi_prime-np.dot(F[action], phi)), phi)
+            b[action] = b[action] + alpha*((reward - b[action].T@phi)*phi)
+
             theta += alpha*delta*phi
             #plan
             #uncomment for planning
