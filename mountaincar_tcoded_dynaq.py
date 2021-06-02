@@ -1,4 +1,3 @@
-
 from typing import Sequence
 import gym
 import numpy as np
@@ -69,44 +68,63 @@ class MountainCarTileCoder:
         
         return np.array(tiles)
 
-    def getQval(self, phi, F, b, gamma, theta):
-        Q = b.T @ phi + gamma * (theta.T @ F @ phi)
+    def getQval(self, phi, F, reward, gamma, theta):
+        Q = max(min(-200, reward + gamma * (theta.T @ F) @ phi),0)
         return Q
 
-    def getQ(self, phi, F, b, gamma, theta):
+    def getQ(self, phi, F, rew, gamma, theta):
         Q = np.zeros(self.actions)
         for i in range(self.actions):
-            Q[i] = self.getQval(phi, F[i], b[i], gamma, theta)
+            Q[i] = self.getQval(phi, F[i], rew[i], gamma, theta)
         return Q
+        
+def argmax(q_values):
+    top = float("-inf")
+    ties = []
 
-def planning(n, theta, F, b, tile, gamma, alpha):
+    for i in range(len(q_values)):
+        if q_values[i] > top:
+            top = q_values[i]
+            ties = []
+
+        if q_values[i] == top:
+            ties.append(i)
+
+    return np.random.choice(ties)
+
+def rewardlist(state, tile):
+    rew = []
+    env2 = gym.make("MountainCar-v0")
+    env2.reset()
+    for i in range(tile.actions):
+        env2.state =state
+        state2, reward, done, info = env2.step(i)
+        rew.append(reward)
+    return rew
+
+def planning(n, theta, F, tile, gamma, alpha):
     for _ in range(n):
         sample_state = env.observation_space.sample()
         phi = tile.get_tiles(position = sample_state[0], velocity = sample_state[1])
-        Q = tile.getQ( phi, F, b, gamma, theta)
-        action = np.argmax(Q)
-        phi_prime  = (F[action] @ phi)
-        reward = (b[action].T @ phi)
-        delta = reward + (gamma*(theta.T @ phi_prime)) - (theta.T @ phi)
+        rew = rewardlist(state, tile)
+        Q = tile.getQ( phi, F, rew, gamma, theta)
+        delta = max(Q) - (theta.T @ phi)
         theta += alpha*delta*phi
-        return theta
-
-
+    return theta
 
 if __name__ == "__main__":
 
     tile = MountainCarTileCoder(iht_size=1024, num_tilings=8, num_tiles=8)
     theta = np.random.uniform(-0.001, 0, size=(tile.n))
-    F = 3* [np.identity(tile.n)]
-    b =  3* [np.random.uniform(-0.001, 0, size=(tile.n))]
-    alpha = 0.00001
-    gamma = 1
+    F = 3* [np.zeros((tile.n,tile.n))]
+    alpha = 0.000001
+    gamma = 0.995
     numEpisodes = 100000
-    stepsPerEpisode = 200
+    stepsPerEpisode = 1000
     rewardTracker = []
     render = False
     solved = False
-    n = 50
+    n = 10
 
     for episodeNum in range(1,numEpisodes+1):
         G = 0
@@ -115,8 +133,9 @@ if __name__ == "__main__":
             if render:
                 env.render()
             phi = tile.get_tiles(position=state[0], velocity=state[1])    
-            Q = tile.getQ( phi, F, b, gamma, theta)
-            action = np.argmax(Q)
+            rew = rewardlist(state, tile)
+            Q = tile.getQ( phi, F, rew, gamma, theta)
+            action = argmax(Q)
             state2, reward, done, info = env.step(action)
             phi_prime = tile.get_tiles(position=state2[0], velocity=state2[1])                    
             G += reward
@@ -129,12 +148,12 @@ if __name__ == "__main__":
                 break
             #modelling
             F[action] = F[action] + alpha*np.outer((phi_prime-np.dot(F[action], phi)), phi)
-            b[action] = b[action] + alpha*((reward - b[action].T@phi)*phi)
-
+            #b[action] = b[action] + alpha*((reward - b[action].T@phi)*phi)
+            
             theta += alpha*delta*phi
             #plan
             #uncomment for planning
-            #theta = planning(n, theta, F, b, tile, gamma, alpha)
+            theta = planning(n, theta, F, tile, gamma, alpha)
             state = state2
 
         if solved != True:
