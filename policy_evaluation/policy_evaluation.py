@@ -2,9 +2,8 @@ from typing import Sequence
 import mountaincar
 import numpy as np
 from numpy.core.fromnumeric import shape
-import time
 import tiles3 as tc
-
+from tqdm import tqdm
 
 class MountainCarTileCoder:
     def __init__(self, iht_size=4096, num_tilings=8, num_tiles=8):
@@ -23,7 +22,8 @@ class MountainCarTileCoder:
         self.iht = tc.IHT(iht_size)
         self.num_tilings = num_tilings
         self.num_tiles = num_tiles
-        self.n = self.num_tilings
+        #self.n = self.num_tilings
+        self.n = iht_size
     
     def get_tiles(self, position, velocity):
         """
@@ -49,6 +49,13 @@ class MountainCarTileCoder:
                                                       velocity * velocity_scale])
         
         return np.array(tiles)
+    
+    def get_one_hot(self, tiles):
+        one_hot = np.zeros(self.n)
+        for i in tiles:
+            one_hot[i] = 1.0
+        return one_hot
+
 
 def planning(n, theta, F, b, tile, gamma, alpha):
     POSITION_MIN = -1.2
@@ -59,6 +66,7 @@ def planning(n, theta, F, b, tile, gamma, alpha):
     sample_vel = np.random.uniform(low=VELOCITY_MIN, high=VELOCITY_MAX, size=(n,))
     for i in range(n):
         phi = tile.get_tiles(position = sample_pos[i], velocity = sample_vel[i])
+        phi = tile.get_one_hot(phi)
         phi_prime = F @ phi
         reward = b.T @ phi
         delta = reward + (gamma*(theta.T @ phi_prime)) - (theta.T @ phi)
@@ -80,7 +88,7 @@ def policy(state, epsilon):
 
 if __name__ == "__main__":
 
-    tile = MountainCarTileCoder(iht_size=10000, num_tilings=10, num_tiles=10)
+    tile = MountainCarTileCoder(iht_size=1000, num_tilings=10, num_tiles=8)
     theta = np.random.uniform(-0.001, 0, size=(tile.n))
     F = np.zeros((tile.n,tile.n))
     b = np.zeros((tile.n))
@@ -98,17 +106,19 @@ if __name__ == "__main__":
     env = mountaincar.MountainCar()
 
 
-    for episodeNum in range(1,numEpisodes+1):
+    for episodeNum in tqdm(range(1,numEpisodes+1)):
         G = 0
         env.init()
         state = env.start()
+        #print(episodeNum, ":\n")
         for step in range(stepsPerEpisode):
-            if render:
-                env.render()
             phi = tile.get_tiles(position=state[0], velocity=state[1])
+            phi = tile.get_one_hot(phi)
             action = policy(state, epsilon)    
             reward, state2 ,done = env.step(action)
-            phi_prime = tile.get_tiles(position=state2[0], velocity=state2[1])                    
+            phi_prime = tile.get_tiles(position=state2[0], velocity=state2[1])
+            phi_prime = tile.get_one_hot(phi_prime)
+                   
             G += reward
             delta = reward + (gamma*(theta.T @ phi_prime)) - (theta.T @ phi)
             #modelling
@@ -118,8 +128,8 @@ if __name__ == "__main__":
             #plan
             theta = planning(n, theta, F, b, tile, gamma, alpha)
             state = state2
-        alpha = alpha* ((N_0 +1)/(N_0 + (episodeNum+1)**1.1))
-        loss.append(delta**2 )
+        alpha = alpha* ((N_0 +1)/(N_0 + (episodeNum)**1.1))
+        loss.append(delta**2)
 
     import matplotlib.pyplot as plt
     plt.plot(loss)
