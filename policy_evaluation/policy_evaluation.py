@@ -4,6 +4,14 @@ import numpy as np
 from numpy.core.fromnumeric import shape
 import tiles3 as tc
 from tqdm import tqdm
+import argparse
+import json
+
+#Utility function
+def update_config(path):
+    with open(path, 'r') as json_file: 
+      data = json.load(json_file)
+    return data
 
 class MountainCarTileCoder:
     def __init__(self, iht_size=4096, num_tilings=8, num_tiles=8):
@@ -86,22 +94,24 @@ def policy(state, epsilon):
     
     return action
 
-if __name__ == "__main__":
-
-    tile = MountainCarTileCoder(iht_size=1000, num_tilings=10, num_tiles=8)
+def main():
+    parser = argparse.ArgumentParser(description="Policy Evaluation Random Dyna")
+    parser.add_argument("--cfg", type=str, default='config.json',
+                      help="config file name")
+    args = parser.parse_args()
+    fname = args.cfg
+    config = update_config(fname)
+    tile = MountainCarTileCoder(iht_size=10000, num_tilings=10, num_tiles=8)
     theta = np.random.uniform(-0.001, 0, size=(tile.n))
     F = np.zeros((tile.n,tile.n))
     b = np.zeros((tile.n))
-    alpha = 0.01
-    gamma = 0.995
-    epsilon = 0.1
-    N_0 = 1000000.0
-    numEpisodes = 1000
-    stepsPerEpisode = 200
-    rewardTracker = []
-    render = False
-    solved = False
-    n = 10
+    alpha = config["alpha"]
+    gamma = config["gamma"]
+    epsilon = config["epsilon"]
+    N_0 = config["N_0"]
+    numEpisodes = config["numEpisodes"]
+    stepsPerEpisode = config["stepsPerEpisode"]
+    n = config["n_planning_steps"]
     loss = []
     env = mountaincar.MountainCar()
 
@@ -130,8 +140,8 @@ if __name__ == "__main__":
             state = state2
         alpha = alpha* ((N_0 +1)/(N_0 + (episodeNum)**1.1))
         loss.append(delta**2)
+    stname = "losses"+"_n0_" + "{}".format(config["N_0"]) + "_alpha"+ "{}".format(config["alpha"])
+    np.save( stname + 'loss', loss)
 
-    import matplotlib.pyplot as plt
-    plt.plot(loss)
-    plt.ylabel('Loss')
-    plt.show()
+if __name__ == "__main__":
+    main()

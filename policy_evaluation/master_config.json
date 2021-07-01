@@ -1,0 +1,10 @@
+{
+    "alpha" : [0.01, 0.1, 1],
+    "gamma":  [1.0],
+    "epsilon": [0.1],
+    "N_0" : [100.0 ,1000.0, 1000000.0],
+    "numEpisodes" : [1000],
+    "stepsPerEpisode" : [200],
+    "n_planning_steps" : [10],
+    "step": [0.001]
+    }
